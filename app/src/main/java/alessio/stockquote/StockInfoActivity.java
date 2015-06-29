@@ -9,13 +9,17 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.widget.TextView;
 
+import org.json.JSONException;
+import org.json.JSONObject;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
 import org.xml.sax.SAXException;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -88,47 +92,63 @@ public class StockInfoActivity extends ActionBarActivity {
     }
 
     private class MyAsyncTask extends AsyncTask<String, String, String> {
+        private final String[] PATH = {"query", "results", "quote"};
 
         @Override
         protected String doInBackground(String... params) {
+            InputStream in = null;
+            String result = null;
             try {
                 URL url = new URL(params[0]);
                 HttpURLConnection connection = (HttpURLConnection) url.openConnection();
 
                 int responseCode = connection.getResponseCode();
                 if (responseCode == HttpURLConnection.HTTP_OK) {
-                    InputStream in = connection.getInputStream();
-                    DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-                    DocumentBuilder db = dbf.newDocumentBuilder();
-                    Document dom = db.parse(in);
-                    Element docEl = dom.getDocumentElement();
-                    NodeList nl = docEl.getElementsByTagName(KEY_ITEM);
-                    if (nl != null && nl.getLength() > 0) {
-                        for (int i = 0; i < nl.getLength(); ++i) {
-                            StockInfo stock = getStockInformation(docEl);
-                            companyName = stock.name;
-                            yearLow = stock.yearLow;
-                            yearHigh = stock.yearHigh;
-                            daysLow = stock.daysLow;
-                            daysHigh = stock.daysHigh;
-                            lastTradePriceOnly = stock.lastTradePriceOnly;
-                            change = stock.change;
-                            daysRange = stock.daysRange;
-                        }
+                    in = connection.getInputStream();
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(in));
+                    StringBuilder s = new StringBuilder();
+
+                    String line = reader.readLine();
+                    while (line != null) {
+                        s.append(line).append("\n");
+                        line = reader.readLine();
                     }
+
+                    result = s.toString();
+                    Log.d(TAG, result);
+
+                    JSONObject json = new JSONObject(result);
+                    for (String key: PATH) {
+                        json = json.getJSONObject(key);
+                    }
+
+                    // json.optString returns "" (empty string) if lookup fails
+                    companyName = json.optString(KEY_NAME);
+                    daysLow = json.optString(KEY_DAYS_LOW);
+                    daysHigh = json.optString(KEY_DAYS_HIGH);
+                    yearLow = json.optString(KEY_YEAR_LOW);
+                    yearHigh = json.optString(KEY_YEAR_HIGH);
+                    lastTradePriceOnly =  json.optString(KEY_LAST_TRADE_PRICE);
+                    change = json.optString(KEY_CHANGE);
+                    daysRange = json.optString(KEY_DAYS_RANGE);
                 }
             } catch (MalformedURLException e) {
                 e.printStackTrace();
             } catch (IOException e) {
                 e.printStackTrace();
-            } catch (ParserConfigurationException e) {
+            } catch (JSONException e) {
                 e.printStackTrace();
-            } catch (SAXException e) {
-                e.printStackTrace();
+            } finally {
+                if (in != null) try {
+                    in.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
             }
             return null;
         }
 
+        // this is the only method which can modify UI elements!
         protected void onPostExecute(String result) {
             companyNameDataTextView.setText(companyName);
             yearLowDataTextView.setText(yearLow);
@@ -138,29 +158,6 @@ public class StockInfoActivity extends ActionBarActivity {
             lastTradePriceOnlyDataTextView.setText(lastTradePriceOnly);
             changeDataTextView.setText(change);
             daysRangeDataTextView.setText(daysRange);
-        }
-
-        private StockInfo getStockInformation(Element entry) {
-            return new StockInfo(
-                    getTextValue(entry, KEY_DAYS_LOW),
-                    getTextValue(entry, KEY_DAYS_HIGH),
-                    getTextValue(entry, KEY_YEAR_LOW),
-                    getTextValue(entry, KEY_YEAR_HIGH),
-                    getTextValue(entry, KEY_NAME),
-                    getTextValue(entry, KEY_LAST_TRADE_PRICE),
-                    getTextValue(entry, KEY_CHANGE),
-                    getTextValue(entry, KEY_DAYS_RANGE)
-            );
-        }
-
-        private String getTextValue(Element entry, String tag) {
-            NodeList nl = entry.getElementsByTagName(tag);
-            if (nl != null && nl.getLength() > 0) {
-                Element element = (Element) nl.item(0);
-                return element.getFirstChild().getNodeValue();
-            }
-            else
-                return null;
         }
     }
 
